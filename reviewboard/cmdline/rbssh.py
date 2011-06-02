@@ -265,6 +265,7 @@ def main():
 
     client = sshutils.get_ssh_client()
     client.set_missing_host_key_policy(paramiko.WarningPolicy())
+    identity_filename = sshutils.get_ssh_identity_filename(hostname)
 
     attempts = 0
     password = None
@@ -272,7 +273,11 @@ def main():
 
     while True:
         try:
-            client.connect(hostname, username=username, password=password)
+            if identity_filename:
+              client.connect(hostname, username=username, password=password, key_filename=identity_filename)
+            else:
+              client.connect(hostname, username=username, password=password)
+
             break
         except paramiko.AuthenticationException, e:
             if attempts == 3 or not sys.stdin.isatty():

@@ -32,6 +32,9 @@ def get_host_keys_filename():
     """Returns the URL to the known host keys file."""
     return os.path.expanduser('~/.ssh/known_hosts')
 
+def get_ssh_config_filename():
+    """Returns the path to the user's SSH configuration file."""
+    return os.path.expanduser('~/.ssh/config')
 
 def get_user_key():
     """Returns the keypair of the user running Review Board.
@@ -176,6 +179,34 @@ def get_ssh_client():
 
     return client
 
+def get_ssh_config():
+    """
+    Returns a new paramiko.SSHConfig using the users .ssh/config file, 
+    or None if the file doesn't exist
+    """
+    ssh_config = paramiko.SSHConfig()
+    try:
+        ssh_config.parse(open(get_ssh_config_filename()))
+        return ssh_config
+    except IOError:
+        return None
+
+def get_ssh_identity_filename(hostname):
+    """
+    Returns the filename of the key for a given hostname,
+    or None if the setting isn't specified.
+    """
+    if not hostname:
+        return None
+
+    ssh_config = get_ssh_config()
+    if ssh_config:
+        host_config = ssh_config.lookup(hostname)
+        if 'identityfile' in host_config:
+            return os.path.expanduser(host_config['identityfile'])
+
+
+    return None
 
 def add_host_key(hostname, key):
     """Adds a host key to the known hosts file."""
@@ -266,13 +297,19 @@ def check_host(hostname, username=None, password=None):
     client = get_ssh_client()
     client.set_missing_host_key_policy(RaiseUnknownHostKeyPolicy())
 
+    identity_filename = get_ssh_identity_filename(hostname)
+
     # We normally want to notify on unknown host keys, but not when running
     # unit tests.
     if getattr(settings, 'RUNNING_TEST', False):
         client.set_missing_host_key_policy(paramiko.WarningPolicy())
 
     try:
-        client.connect(hostname, username=username, password=password)
+        # try to connect with the SSH key specified for the host first
+        if identity_filename:
+          client.connect(hostname, username=username, password=password, key_filename=identity_filename)
+        else:
+          client.connect(hostname, username=username, password=password)
     except paramiko.BadHostKeyException, e:
         raise BadHostKeyError(e.hostname, e.key, e.expected_key)
     except paramiko.AuthenticationException, e:
